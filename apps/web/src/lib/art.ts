@@ -3,9 +3,39 @@ import {segmenter} from './face';
 export type Shot={id:string;target:string;image:string;full:string;quality:number;angles:{yaw:number;pitch:number;roll:number};timestamp:string;consentScope:string};
 const loadImage=(src:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=reject;i.src=src;});
 export async function photoFromVideo(video:HTMLVideoElement,faceBox?:{x:number;y:number;w:number;h:number}){const c=document.createElement('canvas');c.width=720;c.height=900;const ctx=c.getContext('2d')!;const scale=Math.max(c.width/video.videoWidth,c.height/video.videoHeight);ctx.save();ctx.translate(c.width,0);ctx.scale(-1,1);ctx.drawImage(video,(c.width-video.videoWidth*scale)/2,(c.height-video.videoHeight*scale)/2,video.videoWidth*scale,video.videoHeight*scale);ctx.restore();const full=c.toDataURL('image/webp',.86);const crop=document.createElement('canvas');crop.width=400;crop.height=480;const cf=crop.getContext('2d')!;if(faceBox){const x=Math.max(0,Math.floor((1-faceBox.x-faceBox.w)*720-80)),y=Math.max(0,Math.floor(faceBox.y*900-85)),w=Math.min(720-x,Math.round(faceBox.w*720+160)),h=Math.min(900-y,Math.round(faceBox.h*900+170));cf.drawImage(c,x,y,w,h,0,0,400,480);}else{cf.drawImage(c,0,0,720,900,0,0,400,480);}return {full,image:crop.toDataURL('image/webp',.85)};}
-async function personMask(image:HTMLImageElement){try{const m=await segmenter();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d',{willReadFrequently:true})!;ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);const result=m.segment(image);const mask=result.categoryMask;if(!mask)throw new Error('No segmentation output');const weights=mask.getAsUint8Array();const mw=mask.width,mh=mask.height;for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){const mx=Math.min(mw-1,Math.floor(x*mw/canvas.width)),my=Math.min(mh-1,Math.floor(y*mh/canvas.height)),v=weights[my*mw+mx]; // Selfie segmenter: category 1 is person.
+/** Offline, purely local cutout when the input photo has a plain backdrop.
+ * Flood-fill only pixels connected to the edges and close to the top-corner background.
+ * For complex backgrounds, return null and use the honest soft-oval fallback instead. */
+function plainBackgroundCutout(image:HTMLImageElement):HTMLCanvasElement|null{
+ const c=document.createElement('canvas');c.width=image.naturalWidth;c.height=image.naturalHeight;
+ const ctx=c.getContext('2d',{willReadFrequently:true});if(!ctx)return null;
+ ctx.drawImage(image,0,0);const data=ctx.getImageData(0,0,c.width,c.height),d=data.data,w=c.width,h=c.height;
+ const color=(x:number,y:number)=>{const i=(y*w+x)*4;return [d[i],d[i+1],d[i+2]];};
+ const bg1=color(2,2),bg2=color(w-3,2);
+ if(bg1.some((v,i)=>Math.abs(v-bg2[i])>34))return null;
+ const bg=bg1.map((v,i)=>(v+bg2[i])/2);
+ const diff=(pixel:number)=>Math.max(Math.abs(d[pixel]-bg[0]),Math.abs(d[pixel+1]-bg[1]),Math.abs(d[pixel+2]-bg[2]));
+ const size=w*h,seen=new Uint8Array(size),queue=new Uint32Array(size);let head=0,tail=0;
+ const add=(n:number)=>{if(n<0||n>=size||seen[n])return;seen[n]=1;if(diff(n*4)<65)queue[tail++]=n;};
+ for(let x=0;x<w;x++){add(x);add((h-1)*w+x);}
+ for(let y=0;y<h;y++){add(y*w);add(y*w+w-1);}
+ while(head<tail){const n=queue[head++],i=n*4,delta=diff(i);
+  d[i+3]=Math.min(d[i+3],Math.max(0,Math.min(255,Math.round((delta-25)*7.5))));
+  const x=n%w,y=(n/w)|0;if(x>0)add(n-1);if(x<w-1)add(n+1);if(y>0)add(n-w);if(y<h-1)add(n+w);
+ }
+ // A plain backdrop should occupy a meaningful amount of the input image.
+ if(tail<size*.03)return null;
+ ctx.putImageData(data,0,0);return c;
+}
+async function personMask(image:HTMLImageElement){try{// The online segmentation model must never indefinitely block artwork generation.
+ // If it cannot load promptly (offline / slow Render-style network / blocked CDN),
+ // use the local portrait matte fallback below. No photo is uploaded.
+ const m=await Promise.race([
+  segmenter(),
+  new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('Segmentation timed out; use local fallback')),3200))
+ ]);const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d',{willReadFrequently:true})!;ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);const result=m.segment(image);const mask=result.categoryMask;if(!mask)throw new Error('No segmentation output');const weights=mask.getAsUint8Array();const mw=mask.width,mh=mask.height;for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){const mx=Math.min(mw-1,Math.floor(x*mw/canvas.width)),my=Math.min(mh-1,Math.floor(y*mh/canvas.height)),v=weights[my*mw+mx]; // Selfie segmenter: category 1 is person.
  pixels.data[(y*canvas.width+x)*4+3]=v===1?255:0;}ctx.putImageData(pixels,0,0);mask.close();result.close();return canvas;}catch{ // Offline fallback: softened portrait matte, clearly not a true person segmentation.
- const c=document.createElement('canvas');c.width=image.naturalWidth;c.height=image.naturalHeight;const ctx=c.getContext('2d')!;ctx.drawImage(image,0,0);const data=ctx.getImageData(0,0,c.width,c.height),cx=c.width/2,cy=c.height*.49;for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++){const dist=((x-cx)/(c.width*.43))**2+((y-cy)/(c.height*.54))**2;data.data[(y*c.width+x)*4+3]*=Math.max(0,Math.min(1,(1.08-dist)*8));}ctx.putImageData(data,0,0);return c;}}
+ const cutout=plainBackgroundCutout(image);if(cutout)return cutout;const c=document.createElement('canvas');c.width=image.naturalWidth;c.height=image.naturalHeight;const ctx=c.getContext('2d')!;ctx.drawImage(image,0,0);const data=ctx.getImageData(0,0,c.width,c.height),cx=c.width/2,cy=c.height*.49;for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++){const dist=((x-cx)/(c.width*.43))**2+((y-cy)/(c.height*.54))**2;data.data[(y*c.width+x)*4+3]*=Math.max(0,Math.min(1,(1.08-dist)*8));}ctx.putImageData(data,0,0);return c;}}
 export async function renderCard(sceneId:string,photo:string|undefined,width=900,height=1125,watermark=true,second?:string){const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const ctx=canvas.getContext('2d')!;
  const base=await loadImage('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(sceneSVG(sceneId,width,height)));ctx.drawImage(base,0,0,width,height);
  const drawPerson=async(data:string,x:number,multi=false)=>{const img=await loadImage(data),matte=await personMask(img);const scale=multi?.75:1.10;const targetH=height*.64*scale,targetW=img.width/img.height*targetH,tx=x-targetW/2,ty=height*.75-targetH;
