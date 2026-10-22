@@ -1,0 +1,17 @@
+# Deploy as one Node web service, not a Vite-only static site.
+# GitHub repo root must be avatar-forge/ (containing this file and package.json).
+services:
+  - type: web
+    name: avatar-forge-demo
+    runtime: node
+    plan: free
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: RECEIPT_SECRET
+        generateValue: true
+      - key: DISABLE_RESEARCH_COLLECTION
+        value: 'true'

@@ -1,0 +1,46 @@
+AVATAR FORGE — HOW TO SEE THE APP
+================================
+
+Want to see its DESIGN immediately with no setup?
+  Double-click OPEN_PREVIEW.html
+  This is an interactive OFFLINE DESIGN PREVIEW, not the live camera/game.
+
+Want to run the REAL FULL APP on Windows?
+  1. Install Node.js 22 LTS from https://nodejs.org/
+  2. Extract avatar-forge.zip COMPLETELY (not inside the ZIP viewer).
+  3. Double-click START_AVATAR_FORGE.bat from the extracted folder.
+  4. The installer needs internet on its first run. The browser opens at
+     http://localhost:5173 when the web server responds.
+
+Or start via VS Code terminal inside the extracted avatar-forge folder:
+  npm install
+  npm run dev
+  Open http://localhost:5173
+
+IMPORTANT:
+  Opening apps/web/index.html as a normal file WILL NOT start a Vite app.
+  MediaPipe face models initially require internet.
+  Real camera access works on localhost in Chrome/Edge; consent first.
+  See README.md for a full feature/status matrix and troubleshooting.
+
+If you only see a blank page:
+  - Confirm the dev terminal says Vite is running at localhost:5173.
+  - Open Chrome Developer Tools (F12) > Console > copy the first red error.
+  - Check browser Network tab for failed script requests.
+  - Try private/incognito mode or hard reload (Ctrl+Shift+R).
+  - Stop any other application running on port 5173.
+
+MOTION IMPORT ERROR (activeAnimations / motion-dom)
+------------------------------------------
+This updated ZIP pins the exact compatible Motion package versions.
+If you are repairing your existing installation, STOP the server, open
+the avatar-forge folder in VS Code, and run:
+
+    npm install
+    npm ls framer-motion motion-dom motion-utils
+    npm run dev
+
+Expected versions: framer-motion@12.23.3, motion-dom@12.23.2, motion-utils@12.23.2.
+If an older package-lock.json persists, delete package-lock.json, then run npm install again.
+Windows PowerShell: Remove-Item .\package-lock.json
+Node 22 LTS recommended; your Node 24 is outside the project's supported range.

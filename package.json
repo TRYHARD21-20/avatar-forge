@@ -1,0 +1,43 @@
+{
+  "name": "avatar-forge",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.19.0 <24"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n WEB,API -c cyan,yellow \"npm run dev -w @avatar/web\" \"npm run dev -w @avatar/server\"",
+    "build": "npm run build -w @avatar/web",
+    "test": "npm run test:unit && npm run test:logic",
+    "test:unit": "vitest run",
+    "test:logic": "node --test packages/shared/tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "lint": "eslint apps/web/src apps/server/src packages/shared/src",
+    "typecheck": "tsc --noEmit -p apps/web/tsconfig.json",
+    "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,js,mjs,css,json}\"",
+    "start": "npm run start -w @avatar/server"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "22.15.30",
+    "@types/react": "18.3.24",
+    "@types/react-dom": "18.3.7",
+    "@typescript-eslint/eslint-plugin": "8.35.1",
+    "@typescript-eslint/parser": "8.35.1",
+    "concurrently": "9.2.0",
+    "eslint": "8.57.1",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "prettier": "3.6.2",
+    "typescript": "5.8.3",
+    "vitest": "3.2.4"
+  },
+  "overrides": {
+    "motion-dom": "12.23.2",
+    "motion-utils": "12.23.2"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+.env
+apps/server/data/
+*.log
+.DS_Store
+
+.vercel/

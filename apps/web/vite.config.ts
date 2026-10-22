@@ -1,0 +1,4 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+export default defineConfig({plugins:[react(),VitePWA({registerType:'autoUpdate',includeAssets:['favicon.svg'],manifest:{name:'Avatar Forge',short_name:'Avatar Forge',theme_color:'#fff4e0',background_color:'#fff4e0',display:'standalone',start_url:'/',icons:[{src:'/favicon.svg',sizes:'any',type:'image/svg+xml',purpose:'any'}]},workbox:{navigateFallback:'/index.html',globPatterns:['**/*.{js,css,html,svg,png,woff2}'],runtimeCaching:[{urlPattern:/https:\/\/storage\.googleapis\.com\/mediapipe-models\//,handler:'CacheFirst',options:{cacheName:'face-models',expiration:{maxEntries:6,maxAgeSeconds:2592000}}}]}})],server:{port:5173,strictPort:true,proxy:{'/api':'http://127.0.0.1:3001','/ws':{target:'ws://127.0.0.1:3001',ws:true}}}});
