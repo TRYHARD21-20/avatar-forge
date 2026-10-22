@@ -1,5 +1,5 @@
 /** Privacy-first, dependency-free camera gate. All angles are degrees. */
-export const DEFAULTS = Object.freeze({frontYaw:8,frontPitch:12,sideYaw:28,easySideYaw:18,holdMs:700,easyHoldMs:1050,selectHoldMs:1000,maxRoll:18,maxVelocity:220,minFaceArea:0.085,maxCenterOffset:.30,minSharpness:24,minBrightness:53,maxBrightness:218});
+export const DEFAULTS = Object.freeze({frontYaw:8,frontPitch:12,sideYaw:21,easySideYaw:16,holdMs:600,easyHoldMs:800,selectHoldMs:750,easySelectHoldMs:900,sideHysteresis:4,maxRoll:18,maxVelocity:220,minFaceArea:0.085,maxCenterOffset:.30,minSharpness:24,minBrightness:53,maxBrightness:218});
 export const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 export const ema=(oldValue,next,alpha=.36)=>oldValue==null?next:oldValue*(1-alpha)+next*alpha;
 export function poseFromMatrix(data){
@@ -38,7 +38,7 @@ export function qualityGate(o,{easy=false,blinkTask=false}={}){
  return null;
 }
 export function qualityScore(o,target='FRONT',easy=false){
- const ideal=target==='FRONT'?0:easy?18:28;
+ const ideal=target==='FRONT'?0:easy?DEFAULTS.easySideYaw:DEFAULTS.sideYaw;
  const angle=target==='FRONT'?Math.abs(o.yaw):Math.abs(Math.abs(o.yaw)-ideal);
  const sharp=clamp((o.sharpness-24)/110,0,1);
  const exp=clamp(1-Math.abs(o.brightness-133)/95,0,1);
@@ -59,7 +59,7 @@ export class CaptureMachine {
  step(observation,at=performanceNow()){
   if(this.captured)return this.lastResult;
   const o={...DEFAULT_OBS,...observation};
-  this.smoothYaw=ema(this.smoothYaw,o.yaw,.52);
+  this.smoothYaw=ema(this.smoothYaw,o.yaw,.60);
   const yaw=this.smoothYaw;
   const dt=this.lastAt===null?0:Math.max(1,at-this.lastAt);
   const delta=this.lastYaw===null?0:Math.abs(yaw-this.lastYaw);
@@ -85,28 +85,40 @@ export class CaptureMachine {
    else this.primeAt=null;
    return this.result(0,'Look straight to start',o);
   }
-  // Signed yaw. mirror flips UI orientation, but MUST NOT turn roll into yaw.
+  // Physical yaw is the only allowed movement. The Flip Directions control changes
+  // the left/right interpretation, never roll or pitch. No simulated turn is accepted.
   const signed=this.mirror?-yaw:yaw;
-  const onSide=this.target==='LEFT'?signed<-(this.easy?18:28):signed>(this.easy?18:28);
+  const towardsTarget=this.target==='LEFT'?-signed:signed;
+  const enter=this.easy?DEFAULTS.easySideYaw:DEFAULTS.sideYaw;
+  // Hysteresis: while already holding, a few degrees of harmless tracking jitter
+  // must not erase progress. Returning to front or turning the wrong way always does.
+  const release=enter-DEFAULTS.sideHysteresis;
+  const onSide=towardsTarget>=(this.holdFrom===null?enter:release);
   if(front){this.turnDistance=0;this.turnStart=at;this.holdFrom=null;this.trajectorySamples=0;this.maxStep=0;this.state='ALIGNING';return this.result(0,'Now turn toward your choice',o);}
-  this.turnDistance=Math.max(this.turnDistance,Math.abs(yaw));
+  this.turnDistance=Math.max(this.turnDistance,Math.max(0,towardsTarget));
   this.trajectorySamples++;this.maxStep=Math.max(this.maxStep,delta);
   const elapsed=at-(this.turnStart??at);
-  if(!onSide){this.holdFrom=null;this.state='ALIGNING';return this.result(0,'Turn a little more',o);}
-  if(elapsed<140||this.turnDistance<(this.easy?18:28)||this.trajectorySamples<4||this.maxStep>14){this.state='ALIGNING';return this.result(0,'Turn gradually, not instantly',o);}
+  if(!onSide){this.holdFrom=null;this.state='ALIGNING';return this.result(0,towardsTarget<0?'Turn the other way':`Turn a little more · ${Math.max(0,Math.round(towardsTarget))}°/${enter}°`,o);}
+  // Require a continuous, gradual center-to-side trajectory. Merely showing a
+  // profile photo or tilting your head never qualifies for a verified capture.
+  if(elapsed<140||this.turnDistance<enter||this.trajectorySamples<4||this.maxStep>14){this.holdFrom=null;this.state='ALIGNING';return this.result(0,'Turn gradually, not instantly',o);}
   return this.hold(o,at,'Hold that angle');
  }
  hold(o,at,hint,overrideMs){
   this.samples++;
   if(this.holdFrom===null)this.holdFrom=at;
-  const duration=overrideMs??(this.select?DEFAULTS.selectHoldMs:(this.easy?DEFAULTS.easyHoldMs:DEFAULTS.holdMs));
+  const duration=overrideMs??(this.select?(this.easy?DEFAULTS.easySelectHoldMs:DEFAULTS.selectHoldMs):(this.easy?DEFAULTS.easyHoldMs:DEFAULTS.holdMs));
   const progress=clamp((at-this.holdFrom)/duration,0,1);
   this.state=progress===1?'CAPTURED':'HOLDING';
   if(progress===1)this.captured=true;
   return this.result(progress,progress===1?'Perfect! Shot locked':hint,o);
  }
  result(progress,hint,o){
-  const r={state:this.state,progress,hint,captured:this.captured,quality:this.captured?qualityScore(o,this.target,this.easy):null,yaw:this.smoothYaw??0,source:o.source||'unknown',target:this.target};this.lastResult=r;return r;
+  const enter=this.easy?DEFAULTS.easySideYaw:DEFAULTS.sideYaw;
+  const signed=this.mirror?-(this.smoothYaw??0):(this.smoothYaw??0);
+  const sideAngle=this.target==='LEFT'?-signed:this.target==='RIGHT'?signed:0;
+  const turnProgress=this.target==='LEFT'||this.target==='RIGHT'?clamp((sideAngle-DEFAULTS.frontYaw)/(enter-DEFAULTS.frontYaw),0,1):0;
+  const r={state:this.state,progress,turnProgress,requiredYaw:enter,hint,captured:this.captured,quality:this.captured?qualityScore(o,this.target,this.easy):null,yaw:this.smoothYaw??0,source:o.source||'unknown',target:this.target};this.lastResult=r;return r;
  }
 }
 function performanceNow(){return globalThis.performance?.now?.()??Date.now();}
