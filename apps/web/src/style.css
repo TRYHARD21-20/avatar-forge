@@ -35,3 +35,61 @@ body{font-family:'Noto Sans','Nirmala UI','Segoe UI',system-ui,sans-serif}h1,h2,
 .questClaimed{border:3px solid var(--ink);background:var(--mint);border-radius:8px;padding:14px 12px;text-align:center;font-weight:900}
 @media(max-width:900px){.dailyQuestGrid{grid-template-columns:1fr 1fr}}
 @media(max-width:570px){.dailyQuestGrid{grid-template-columns:1fr}.dailyQuestCard p{min-height:0}}
+
+/* AVATAR_FORGE_MOBILE_POLISH_V1 */
+/* Safe, additive accessibility and mobile layout polish. No capture or game logic changes. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+:where(.paperPanel, .sceneList, .previewStation, .studioControls, .cameraBox, .dailyQuestCard) { min-width: 0; }
+:where(.btn, .sceneTile, .topBar nav a, .menuBtn) { touch-action: manipulation; }
+:where(.cameraHead, .invite) { flex-wrap: wrap; }
+:where(.selectedPortrait, .uploadNotice, .invite, .paperPanel) { overflow-wrap: anywhere; }
+:where(.cardPreview img, .avatarShow img, .previewStation img) { max-width: 100%; }
+:where(.btn, .sceneTile, .menuBtn, .checkLine input):focus-visible { outline: 4px solid var(--grape); outline-offset: 4px; }
+.sceneTile:focus-visible { position: relative; z-index: 1; }
+.dailyQuestCard progress { border-radius: 999px; overflow: hidden; }
+.dailyQuestCard:focus-within { outline-color: var(--grape); }
+
+@media (pointer: coarse) {
+  :where(.btn, button, .sceneTile, .menuBtn) { min-height: 44px; }
+  .checkLine { padding-block: 5px; }
+  .checkLine input[type="checkbox"] { min-width: 22px; min-height: 22px; }
+}
+
+@media (max-width: 800px) {
+  .cameraHead { gap: 10px; }
+  .cameraHead > * { max-width: 100%; }
+  .roomSetup > *, .forgeLayout > *, .studio > * { min-width: 0; }
+}
+
+@media (max-width: 570px) {
+  .topBar { gap: 8px; padding-inline: 14px; }
+  .topActions { gap: 5px; }
+  .pagePad, .homeModes, .teaser { padding-inline: 16px; }
+  :where(.paperPanel, .sceneList, .previewStation, .studioControls) { padding: 16px; }
+  .gameQuestion { font-size: clamp(2.05rem, 10vw, 2.8rem); line-height: 1.08; }
+  .choiceSide { min-height: 155px; padding: 12px 8px; }
+  .choiceSide h2, .choiceSide h3 { font-size: clamp(1.15rem, 5vw, 1.6rem); line-height: 1.15; overflow-wrap: anywhere; }
+  .viewport { height: clamp(290px, 52svh, 410px); }
+  .sceneTiles { gap: 8px; }
+  .sceneTile { padding: 5px; }
+  .sceneTile span { font-size: .72rem; line-height: 1.25; overflow-wrap: anywhere; }
+  .invite { padding: 16px; }
+  .invite strong { font-size: clamp(1.3rem, 7vw, 2.1rem); overflow-wrap: anywhere; }
+  .passportPage { padding: 15px; }
+  .selectedPortrait img { width: 66px; height: 80px; }
+  .uploadNotice { line-height: 1.55; }
+  .dailyQuestCard { padding: 20px 16px; }
+  .questOverview > span { max-width: 100%; }
+}
+
+@media (max-width: 390px) {
+  .sceneTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topActions .coin { padding: 5px 7px; }
+  .choiceSide { min-height: 145px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+  :where(.heroPolaroid, .mascot) { animation: none !important; }
+  :where(.btn, .sceneTile, .modeCard) { transition: none !important; }
+}
