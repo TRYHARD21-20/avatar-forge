@@ -10,3 +10,11 @@ body{font-family:'Noto Sans','Nirmala UI','Segoe UI',system-ui,sans-serif}h1,h2,
 .uploadNotice{border:2px solid #137764;background:#e1faf0;color:#114d41;border-radius:8px;padding:12px 14px;font-size:.9rem;font-weight:700;line-height:1.45}
 .selectedPortrait{display:flex;align-items:center;gap:11px;margin:12px 0;padding:9px;background:#fff4e0;border:2px solid #14110f;border-radius:8px;font-size:.76rem;line-height:1.4}
 .selectedPortrait img{width:64px;height:78px;flex-shrink:0;object-fit:cover;border:2px solid #14110f;border-radius:4px}
+
+/* Photo avatar lab — isolated styles, no changes to working multiplayer/capture components. */
+.avatarTabs{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 24px}
+.avatarTabs .btn{flex:1;min-width:130px;font-size:.82rem}
+.portraitLoading{min-height:350px;display:flex;flex-direction:column;gap:16px;justify-content:center;align-items:center;padding:28px;background:#fff5dc;border:3px dashed #14110f;margin:14px auto;border-radius:20px;font-weight:900;max-width:450px}
+.portraitLoading span{font-weight:500;font-size:.8rem}
+.forgeForm input[type=range]{width:100%;accent-color:var(--tomato);min-height:30px}
+.forgeForm .textBtn{margin:10px 0;display:block}
