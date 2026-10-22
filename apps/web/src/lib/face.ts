@@ -13,9 +13,91 @@ export function estimate(result:ReturnType<FaceLandmarker['detectForVideo']>,vid
  const m=result.facialTransformationMatrixes?.[0],pose=poseFromMatrix(m?.data as number[]||[])||poseFromLandmarks(points)||{yaw:0,pitch:0,roll:0,source:'unknown'};
  const blend=result.faceBlendshapes?.[0]?.categories||[];const weight=(name:string)=>blend.find(x=>x.categoryName===name)?.score||0;
  const q=frameQuality(video,points);return {...q,faceCount:all.length,faceArea:(maxx-minx)*(maxy-miny),centerOffset:(minx+maxx)/2-.5,yaw:pose.yaw,pitch:pose.pitch,roll:pose.roll,eyesClosed:weight('eyeBlinkLeft')>.55&&weight('eyeBlinkRight')>.55,smiling:weight('mouthSmileLeft')>.48&&weight('mouthSmileRight')>.48,source:pose.source};}
+// Upload validation runs separately from the real-time (VIDEO) head-turn detector.
+// A detection retry is allowed; accepting an unverified face or weakening the
+// "exactly one face" rule is not.
 let imageLandmarker:Promise<FaceLandmarker>|null=null;
-export async function checkStillImage(file:File){if(file.size>8_000_000)throw new Error('8 MB image limit');if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Upload PNG, JPG or WebP');const bmp=await createImageBitmap(file);try{if(bmp.width<300||bmp.height<300)throw new Error('Use a picture at least 300px wide and tall');const c=document.createElement('canvas');c.width=Math.min(1200,bmp.width);c.height=Math.round(c.width*bmp.height/bmp.width);const cx=c.getContext('2d')!;cx.drawImage(bmp,0,0,c.width,c.height);
- if(!imageLandmarker)imageLandmarker=(async()=>{const f=await FilesetResolver.forVisionTasks(wasm);return FaceLandmarker.createFromOptions(f,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'CPU'},runningMode:'IMAGE',numFaces:2});})();
- const land=await imageLandmarker;const result=land.detect(c);if(result.faceLandmarks.length!==1)throw new Error('Upload must contain exactly one clearly visible face');const pts=result.faceLandmarks[0],minX=Math.min(...pts.map(p=>p.x)),maxX=Math.max(...pts.map(p=>p.x)),minY=Math.min(...pts.map(p=>p.y)),maxY=Math.max(...pts.map(p=>p.y));if((maxX-minX)*(maxY-minY)<.085)throw new Error('Move closer: face too small');
- const sample=document.createElement('canvas');sample.width=160;sample.height=120;const sctx=sample.getContext('2d')!;sctx.drawImage(c,0,0,160,120);const data=sctx.getImageData(0,0,160,120).data,luma=new Float32Array(160*120);let total=0;for(let i=0;i<luma.length;i++){const j=i*4;luma[i]=.2126*data[j]+.7152*data[j+1]+.0722*data[j+2];total+=luma[i];}let mean=0,energy=0,n=0;for(let y=3;y<117;y++)for(let x=3;x<157;x++){const i=y*160+x,v=4*luma[i]-luma[i-160]-luma[i+160]-luma[i-1]-luma[i+1];mean+=v;energy+=v*v;n++;}const brightness=total/luma.length,sharpness=Math.sqrt(Math.max(0,energy/n-(mean/n)**2));if(brightness<53||brightness>218||sharpness<24)throw new Error('Photo failed the brightness/sharpness check');const blob=await new Promise<Blob>((resolve,reject)=>c.toBlob(x=>x?resolve(x):reject(new Error('Failed to encode image')),'image/png'));
- return {blob,verified:false,faces:1,brightness,sharpness};}finally{bmp.close();}}
+async function uploadLandmarker():Promise<FaceLandmarker>{
+ if(!imageLandmarker) imageLandmarker=(async()=>{
+  const files=await FilesetResolver.forVisionTasks(wasm);
+  return FaceLandmarker.createFromOptions(files,{
+   baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'CPU'},
+   runningMode:'IMAGE',numFaces:2,minFaceDetectionConfidence:.42,minFacePresenceConfidence:.42
+  });
+ })();
+ let timer:ReturnType<typeof setTimeout>|undefined;
+ try{
+  return await Promise.race([
+   imageLandmarker,
+   new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('Face detection model timed out')),20000);})
+  ]);
+ }catch(e){
+  imageLandmarker=null;
+  throw new Error(`Face scanner could not start. Check your internet connection and retry. (${String(e)})`);
+ }finally{if(timer)clearTimeout(timer);}
+}
+
+/** Pad a close-up portrait so a face clipped near an image edge can be scanned.
+ * Geometry is remapped to the original frame before the size check. */
+function paddedPortrait(source:HTMLCanvasElement,margin=.12,brightness=1){
+ const canvas=document.createElement('canvas');
+ canvas.width=Math.round(source.width/(1-2*margin));
+ canvas.height=Math.round(source.height/(1-2*margin));
+ const ctx=canvas.getContext('2d')!;
+ ctx.fillStyle='#f6f6f6';ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.save();ctx.filter=brightness===1?'none':`brightness(${brightness}) contrast(1.05)`;
+ ctx.drawImage(source,Math.round(canvas.width*margin),Math.round(canvas.height*margin),Math.round(canvas.width*(1-2*margin)),Math.round(canvas.height*(1-2*margin)));
+ ctx.restore();return canvas;
+}
+
+export async function checkStillImage(file:File){
+ if(file.size>8_000_000)throw new Error('8 MB image limit');
+ if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Upload PNG, JPG or WebP');
+ const bmp=await createImageBitmap(file);
+ try{
+  if(bmp.width<300||bmp.height<300)throw new Error('Use a picture at least 300px wide and tall');
+  const scale=Math.min(1,1280/Math.max(bmp.width,bmp.height));
+  const c=document.createElement('canvas');c.width=Math.max(1,Math.round(bmp.width*scale));c.height=Math.max(1,Math.round(bmp.height*scale));
+  if(c.width<220||c.height<220)throw new Error('Choose a closer portrait; the face is too small after resizing');
+  const cx=c.getContext('2d',{willReadFrequently:true})!;
+  cx.fillStyle='#f6f6f6';cx.fillRect(0,0,c.width,c.height);
+  cx.drawImage(bmp,0,0,c.width,c.height);
+  const land=await uploadLandmarker();
+  let faces=land.detect(c).faceLandmarks;
+  let margin=0;
+  // Two genuinely detected faces are always rejected. Retry only on zero faces.
+  if(faces.length===0){
+   const padded=paddedPortrait(c,.12);
+   faces=land.detect(padded).faceLandmarks;
+   margin=.12;
+  }
+  if(faces.length===0){
+   const enhanced=paddedPortrait(c,.08,1.12);
+   faces=land.detect(enhanced).faceLandmarks;
+   margin=.08;
+  }
+  if(faces.length>1)throw new Error(`Found ${faces.length} faces. Please upload a photo with only one person.`);
+  if(faces.length===0)throw new Error('No face detected. Try a clear, front-facing photo with eyes visible, good lighting and some space around the head.');
+  const pts=faces[0];
+  // Face coordinates from padded retry canvases must be mapped back to the photo.
+  const remap=(value:number)=>margin?(value-margin)/(1-2*margin):value;
+  const minX=Math.min(...pts.map(p=>remap(p.x))),maxX=Math.max(...pts.map(p=>remap(p.x)));
+  const minY=Math.min(...pts.map(p=>remap(p.y))),maxY=Math.max(...pts.map(p=>remap(p.y)));
+  if((maxX-minX)*(maxY-minY)<.085)throw new Error('Face detected, but too small. Use a closer head-and-shoulders portrait.');
+
+  const sample=document.createElement('canvas');sample.width=160;sample.height=120;
+  const sctx=sample.getContext('2d')!;sctx.drawImage(c,0,0,160,120);
+  const data=sctx.getImageData(0,0,160,120).data,luma=new Float32Array(160*120);let total=0;
+  for(let i=0;i<luma.length;i++){const j=i*4;luma[i]=.2126*data[j]+.7152*data[j+1]+.0722*data[j+2];total+=luma[i];}
+  let mean=0,energy=0,n=0;
+  for(let y=3;y<117;y++)for(let x=3;x<157;x++){
+   const i=y*160+x,v=4*luma[i]-luma[i-160]-luma[i+160]-luma[i-1]-luma[i+1];
+   mean+=v;energy+=v*v;n++;
+  }
+  const brightness=total/luma.length,sharpness=Math.sqrt(Math.max(0,energy/n-(mean/n)**2));
+  if(brightness<53||brightness>218)throw new Error('Face detected, but lighting is too dark or too bright. Please try another photo.');
+  if(sharpness<24)throw new Error('Face detected, but the photo looks blurry. Try a sharper image.');
+  const blob=await new Promise<Blob>((resolve,reject)=>c.toBlob(x=>x?resolve(x):reject(new Error('Failed to encode image')),'image/png'));
+  return {blob,verified:false,faces:1,brightness,sharpness};
+ }finally{bmp.close();}
+}
