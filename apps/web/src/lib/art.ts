@@ -97,8 +97,56 @@ async function personMask(image:HTMLImageElement):Promise<HTMLCanvasElement>{
 
 export async function renderCard(sceneId:string,photo:string|undefined,width=900,height=1125,watermark=true,second?:string){const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const ctx=canvas.getContext('2d')!;
  const base=await loadImage('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(sceneSVG(sceneId,width,height)));ctx.drawImage(base,0,0,width,height);
- const drawPerson=async(data:string,x:number,multi=false)=>{const img=await loadImage(data),matte=await personMask(img);const scale=multi?.75:1.10;const targetH=height*.58*scale,targetW=img.width/img.height*targetH,tx=x-targetW/2,ty=height*.80-targetH;
- ctx.save();ctx.shadowColor='#17111a99';ctx.shadowBlur=32*width/900;ctx.shadowOffsetY=20*height/1125;ctx.drawImage(matte,tx,ty,targetW,targetH);ctx.restore();ctx.save();ctx.globalCompositeOperation='screen';ctx.globalAlpha=.08;ctx.drawImage(matte,tx-2,ty-2,targetW+4,targetH+4);ctx.restore();};
+ // Checks the actual *rendered canvas*, rather than trusting a segmentation result.
+ const subjectScore=(left:number,top:number,w:number,h:number)=>{
+  const x0=Math.max(0,Math.floor(left+w*.24)),y0=Math.max(0,Math.floor(top+h*.12));
+  const x1=Math.min(width,Math.ceil(left+w*.76)),y1=Math.min(height,Math.ceil(top+h*.75));
+  const sample:number[]=[];
+  for(let yy=y0;yy<y1;yy+=Math.max(1,Math.floor((y1-y0)/12)))
+   for(let xx=x0;xx<x1;xx+=Math.max(1,Math.floor((x1-x0)/12))){
+    const p=ctx.getImageData(xx,yy,1,1).data;
+    sample.push(p[0],p[1],p[2]);
+   }
+  return sample;
+ };
+ const difference=(before:number[],after:number[])=>{
+  let delta=0;for(let i=0;i<before.length;i++)delta+=Math.abs(before[i]-after[i]);
+  return delta/Math.max(before.length,1);
+ };
+ const drawPerson=async(data:string,x:number,multi=false)=>{
+  const img=await loadImage(data);
+  const scale=multi?.75:1.10,targetH=height*.58*scale;
+  const targetW=img.width/img.height*targetH,tx=x-targetW/2,ty=height*.80-targetH;
+  const reference=subjectScore(tx,ty,targetW,targetH);
+  const drawMatte=(matte:HTMLCanvasElement)=>{
+   ctx.save();ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;
+   ctx.shadowColor='#17111a99';ctx.shadowBlur=32*width/900;ctx.shadowOffsetY=20*height/1125;
+   ctx.drawImage(matte,tx,ty,targetW,targetH);ctx.restore();
+  };
+  // Optional person segmentation, with an offline/local fallback.
+  const matte=await personMask(img);
+  drawMatte(matte);
+  let confidence=difference(reference,subjectScore(tx,ty,targetW,targetH));
+  if(confidence<12){
+   // In case the model returned alpha-only fragments or an empty foreground,
+   // retry with a guaranteed-visible cropped portrait instead of silently
+   // showing a scene-only postcard.
+   drawMatte(softPortraitMatte(img));
+   confidence=difference(reference,subjectScore(tx,ty,targetW,targetH));
+  }
+  if(confidence<12){
+   // Last-resort photo tile. Less polished, but honestly keeps the user visible.
+   ctx.save();ctx.fillStyle='#fff4e0';ctx.shadowColor='#14110f77';ctx.shadowBlur=10;
+   ctx.fillRect(tx-6,ty-6,targetW+12,targetH+12);
+   ctx.shadowColor='transparent';ctx.drawImage(img,tx,ty,targetW,targetH);
+   ctx.restore();
+   confidence=difference(reference,subjectScore(tx,ty,targetW,targetH));
+  }
+  if(confidence<8)throw new Error('The image was decoded but the portrait was not visible in the card');
+  // Subtle rim light only on valid visible subjects.
+  ctx.save();ctx.globalCompositeOperation='screen';ctx.globalAlpha=.055;
+  ctx.drawImage(img,tx-2,ty-2,targetW+4,targetH+4);ctx.restore();
+ };
  if(photo){if(second){await drawPerson(photo,width*.32,true);await drawPerson(second,width*.68,true);}else await drawPerson(photo,width*.5);}
  // Film-inspired foreground overlays, graphic details and legible labels.
  const grd=ctx.createLinearGradient(0,height*.64,0,height);grd.addColorStop(0,'#14110f00');grd.addColorStop(1,'#14110fbb');ctx.fillStyle=grd;ctx.fillRect(0,height*.63,width,height*.37);
