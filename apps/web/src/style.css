@@ -18,3 +18,20 @@ body{font-family:'Noto Sans','Nirmala UI','Segoe UI',system-ui,sans-serif}h1,h2,
 .portraitLoading span{font-weight:500;font-size:.8rem}
 .forgeForm input[type=range]{width:100%;accent-color:var(--tomato);min-height:30px}
 .forgeForm .textBtn{margin:10px 0;display:block}
+
+/* Daily quests: device-only game progression, no camera or network changes. */
+.questOverview{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0 32px}
+.questOverview>span{display:inline-flex;align-items:center;background:var(--mango);border:3px solid var(--ink);border-radius:9px;padding:12px 19px;font-size:.85rem;font-weight:900;box-shadow:3px 3px 0 var(--ink)}
+.questOverview>span:nth-child(2){background:var(--mint)}
+.questOverview>span:nth-child(3){background:var(--bubble)}
+.dailyQuestGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.dailyQuestCard{background:#fffdf5;border:3px solid var(--ink);border-radius:14px;box-shadow:6px 6px 0 var(--ink);padding:26px 20px;display:flex;flex-direction:column;min-width:0}
+.dailyQuestEmoji{font-size:3.5rem;margin-bottom:16px}
+.dailyQuestCard .eyebrow{color:#ab321b;margin-bottom:14px}
+.dailyQuestCard h2{font-size:clamp(1.5rem,2.6vw,2.4rem)}
+.dailyQuestCard p{flex:1;min-height:3.5rem;font-size:.88rem}
+.questProgressLabel{font-size:.85rem;font-weight:900;margin:14px 0 7px}
+.dailyQuestCard progress{display:block;width:100%;height:18px;accent-color:var(--mint);margin-bottom:18px}
+.questClaimed{border:3px solid var(--ink);background:var(--mint);border-radius:8px;padding:14px 12px;text-align:center;font-weight:900}
+@media(max-width:900px){.dailyQuestGrid{grid-template-columns:1fr 1fr}}
+@media(max-width:570px){.dailyQuestGrid{grid-template-columns:1fr}.dailyQuestCard p{min-height:0}}
