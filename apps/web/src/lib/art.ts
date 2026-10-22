@@ -27,18 +27,77 @@ function plainBackgroundCutout(image:HTMLImageElement):HTMLCanvasElement|null{
  if(tail<size*.03)return null;
  ctx.putImageData(data,0,0);return c;
 }
-async function personMask(image:HTMLImageElement){try{// The online segmentation model must never indefinitely block artwork generation.
- // If it cannot load promptly (offline / slow Render-style network / blocked CDN),
- // use the local portrait matte fallback below. No photo is uploaded.
- const m=await Promise.race([
-  segmenter(),
-  new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('Segmentation timed out; use local fallback')),3200))
- ]);const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d',{willReadFrequently:true})!;ctx.drawImage(image,0,0);const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);const result=m.segment(image);const mask=result.categoryMask;if(!mask)throw new Error('No segmentation output');const weights=mask.getAsUint8Array();const mw=mask.width,mh=mask.height;for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){const mx=Math.min(mw-1,Math.floor(x*mw/canvas.width)),my=Math.min(mh-1,Math.floor(y*mh/canvas.height)),v=weights[my*mw+mx]; // Selfie segmenter: category 1 is person.
- pixels.data[(y*canvas.width+x)*4+3]=v===1?255:0;}ctx.putImageData(pixels,0,0);mask.close();result.close();return canvas;}catch{ // Offline fallback: softened portrait matte, clearly not a true person segmentation.
- const cutout=plainBackgroundCutout(image);if(cutout)return cutout;const c=document.createElement('canvas');c.width=image.naturalWidth;c.height=image.naturalHeight;const ctx=c.getContext('2d')!;ctx.drawImage(image,0,0);const data=ctx.getImageData(0,0,c.width,c.height),cx=c.width/2,cy=c.height*.49;for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++){const dist=((x-cx)/(c.width*.43))**2+((y-cy)/(c.height*.54))**2;data.data[(y*c.width+x)*4+3]*=Math.max(0,Math.min(1,(1.08-dist)*8));}ctx.putImageData(data,0,0);return c;}}
+/** MediaPipe can occasionally return a mask with no usable foreground even if no
+ * exception was thrown. A zero-alpha canvas must NEVER be treated as finished art. */
+function visibleMatte(canvas:HTMLCanvasElement):boolean{
+ const context=canvas.getContext('2d',{willReadFrequently:true});if(!context)return false;
+ const w=canvas.width,h=canvas.height;if(w<1||h<1)return false;
+ const pixels=context.getImageData(0,0,w,h).data;
+ let total=0,central=0,centralPixels=0,samples=0;
+ const step=Math.max(1,Math.floor(Math.min(w,h)/180));
+ for(let y=0;y<h;y+=step)for(let x=0;x<w;x+=step){
+  const opaque=pixels[(y*w+x)*4+3]>70;
+  total+=Number(opaque);samples++;
+  if(x>=w*.22&&x<=w*.78&&y>=h*.12&&y<=h*.75){central+=Number(opaque);centralPixels++;}
+ }
+ return total/samples>.035 && central/Math.max(centralPixels,1)>.07;
+}
+/** Always-visible local fallback. Softly feathers the photo's edges rather than
+ * accidentally producing a completely transparent subject when ML fails. */
+function softPortraitMatte(image:HTMLImageElement):HTMLCanvasElement{
+ const c=document.createElement('canvas');c.width=image.naturalWidth;c.height=image.naturalHeight;
+ const ctx=c.getContext('2d',{willReadFrequently:true})!;ctx.drawImage(image,0,0);
+ const data=ctx.getImageData(0,0,c.width,c.height),cx=c.width*.5,cy=c.height*.52;
+ for(let y=0;y<c.height;y++)for(let x=0;x<c.width;x++){
+  const nx=(x-cx)/(c.width*.52),ny=(y-cy)/(c.height*.65);
+  const r=Math.sqrt(nx*nx+ny*ny);
+  const alpha=r<.84?1:r>=1.03?0:(1.03-r)/.19;
+  data.data[(y*c.width+x)*4+3]=Math.round(data.data[(y*c.width+x)*4+3]*alpha);
+ }
+ ctx.putImageData(data,0,0);
+ return c;
+}
+async function personMask(image:HTMLImageElement):Promise<HTMLCanvasElement>{
+ try{
+  // Optional model must not block a card on slow/offline connections.
+  const model=await Promise.race([
+   segmenter(),
+   new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('Segmentation timed out')),3200))
+  ]);
+  const result=model.segment(image);
+  try{
+   const mask=result.categoryMask;
+   if(!mask)throw new Error('Segmentation returned no category mask');
+   const mw=mask.width,mh=mask.height,labels=mask.getAsUint8Array();
+   if(mw<1||mh<1||labels.length!==mw*mh)throw new Error('Invalid segmentation dimensions');
+   // Google's SelfieSegmenter: class 0 = background, class 1 = person.
+   let people=0;for(let i=0;i<labels.length;i++)if(labels[i]===1)people++;
+   const ratio=people/labels.length;
+   if(ratio<.035||ratio>.94)throw new Error('Empty or implausible person mask');
+   const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+   const ctx=canvas.getContext('2d',{willReadFrequently:true})!;
+   ctx.drawImage(image,0,0);
+   const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
+   for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){
+    const mx=Math.min(mw-1,Math.floor(x*mw/canvas.width));
+    const my=Math.min(mh-1,Math.floor(y*mh/canvas.height));
+    pixels.data[(y*canvas.width+x)*4+3]=labels[my*mw+mx]===1?255:0;
+   }
+   ctx.putImageData(pixels,0,0);
+   if(!visibleMatte(canvas))throw new Error('Person mask was transparent');
+   return canvas;
+  }finally{result.close();}
+ }catch{
+  // The cutout is still optional: never discard the actual uploaded portrait.
+  const cutout=plainBackgroundCutout(image);
+  if(cutout&&visibleMatte(cutout))return cutout;
+  return softPortraitMatte(image);
+ }
+}
+
 export async function renderCard(sceneId:string,photo:string|undefined,width=900,height=1125,watermark=true,second?:string){const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const ctx=canvas.getContext('2d')!;
  const base=await loadImage('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(sceneSVG(sceneId,width,height)));ctx.drawImage(base,0,0,width,height);
- const drawPerson=async(data:string,x:number,multi=false)=>{const img=await loadImage(data),matte=await personMask(img);const scale=multi?.75:1.10;const targetH=height*.64*scale,targetW=img.width/img.height*targetH,tx=x-targetW/2,ty=height*.75-targetH;
+ const drawPerson=async(data:string,x:number,multi=false)=>{const img=await loadImage(data),matte=await personMask(img);const scale=multi?.75:1.10;const targetH=height*.58*scale,targetW=img.width/img.height*targetH,tx=x-targetW/2,ty=height*.80-targetH;
  ctx.save();ctx.shadowColor='#17111a99';ctx.shadowBlur=32*width/900;ctx.shadowOffsetY=20*height/1125;ctx.drawImage(matte,tx,ty,targetW,targetH);ctx.restore();ctx.save();ctx.globalCompositeOperation='screen';ctx.globalAlpha=.08;ctx.drawImage(matte,tx-2,ty-2,targetW+4,targetH+4);ctx.restore();};
  if(photo){if(second){await drawPerson(photo,width*.32,true);await drawPerson(second,width*.68,true);}else await drawPerson(photo,width*.5);}
  // Film-inspired foreground overlays, graphic details and legible labels.
