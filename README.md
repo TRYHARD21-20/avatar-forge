@@ -127,3 +127,8 @@ PRIVACY_AND_TECH.md Privacy, deployment and threat model
 ```
 
 **Scope:** hackathon only. Do not deploy as a real biometric research product without security, legal, safeguarding, access-control and data-retention reviews. The camera app is browser-based; models run on the user's device but model downloads and possible MediaPipe telemetry require a transparency review.
+
+
+## Vercel public multiplayer upgrade
+
+See **ENABLE_DUO_SQUAD_ON_VERCEL.md** for the deployment steps to keep the Vercel frontend URL and run the original `ws` realtime server on Render. `VITE_REALTIME_ORIGIN` changes only Duo/Squad network calls.

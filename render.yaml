@@ -13,5 +13,7 @@ services:
         value: 22.16.0
       - key: RECEIPT_SECRET
         generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: 'https://avatar-forge-five.vercel.app'
       - key: DISABLE_RESEARCH_COLLECTION
         value: 'true'
