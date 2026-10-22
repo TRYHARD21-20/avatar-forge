@@ -1,6 +1,7 @@
 import {openDB} from 'idb';
 let activeDB:ReturnType<typeof openDB>|null=null;
-const dbPromise=()=>{if(!activeDB)activeDB=openDB('avatar-forge-private-v1',1,{upgrade(db){db.createObjectStore('keys');db.createObjectStore('items');}});return activeDB;};
+const privateDbName=()=>{const uid=localStorage.getItem('af-active-user-id');return uid?'avatar-forge-private-v1-'+uid:'avatar-forge-private-v1';};
+const dbPromise=()=>{if(!activeDB)activeDB=openDB(privateDbName(),1,{upgrade(db){db.createObjectStore('keys');db.createObjectStore('items');}});return activeDB;};
 const bytes=(a:ArrayBuffer)=>Array.from(new Uint8Array(a)).map(x=>x.toString(16).padStart(2,'0')).join('');
 const decode=(s:string)=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 const encode=(a:Uint8Array)=>btoa(String.fromCharCode(...a));
@@ -8,7 +9,7 @@ async function key(){const db=await dbPromise();let k=await db.get('keys','devic
 export async function seal(id:string,value:unknown){const iv=crypto.getRandomValues(new Uint8Array(12));const raw=new TextEncoder().encode(JSON.stringify(value));const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv},await key(),raw);const db=await dbPromise();await db.put('items',{iv:encode(iv),cipher:encode(new Uint8Array(encrypted))},id);}
 export async function unseal<T>(id:string):Promise<T|null>{const db=await dbPromise();const o=await db.get('items',id);if(!o)return null;try{const raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:decode(o.iv)},await key(),decode(o.cipher));return JSON.parse(new TextDecoder().decode(raw)) as T;}catch{return null;}}
 export async function keys(){return (await dbPromise()).getAllKeys('items');}
-export async function eraseAll(){(await dbPromise()).close();activeDB=null;await new Promise<void>((resolve,reject)=>{const r=indexedDB.deleteDatabase('avatar-forge-private-v1');r.onsuccess=()=>resolve();r.onerror=()=>reject(r.error);r.onblocked=()=>reject(new Error('Close other app tabs first'));});localStorage.removeItem('af-public');}
+export async function eraseAll(){(await dbPromise()).close();activeDB=null;await new Promise<void>((resolve,reject)=>{const r=indexedDB.deleteDatabase(privateDbName());r.onsuccess=()=>resolve();r.onerror=()=>reject(r.error);r.onblocked=()=>reject(new Error('Close other app tabs first'));});const uid=localStorage.getItem('af-active-user-id');localStorage.removeItem(uid?'af-public:'+uid:'af-public');localStorage.removeItem(uid?'af-daily-quests-v1:'+uid:'af-daily-quests-v1');}
 export async function exportAll(){const result:Record<string,unknown>={};for(const k of await keys()){result[String(k)]=await unseal(String(k));}return result;}
 export function downloadText(name:string,contents:string,type='application/json'){const a=document.createElement('a'),u=URL.createObjectURL(new Blob([contents],{type}));a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
 export async function digest(data:string){return bytes(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(data)));}

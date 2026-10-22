@@ -3,7 +3,8 @@
  * Captures count only when an existing live-capture quality gate succeeds.
  * Quiz answers may use the accessibility fallback and earn the same rewards.
  */
-const KEY = 'af-daily-quests-v1';
+const baseKey = 'af-daily-quests-v1';
+const key = () => { const uid=localStorage.getItem('af-active-user-id');return uid?`${baseKey}:${uid}`:baseKey;};
 export const DAILY_QUESTS = Object.freeze([
   {id:'angle',kind:'capture',emoji:'📸',title:'The First Shard',detail:'Capture one real head angle',goal:1,reward:60,href:'/capture',action:'Capture an angle'},
   {id:'choices',kind:'answer',emoji:'🎮',title:'Decision Dynamo',detail:'Answer 3 game questions — head turns or accessible tapping',goal:3,reward:45,href:'/solo',action:'Play a quiz'},
@@ -18,7 +19,7 @@ export function localDay(now=new Date()){
 export function readDaily(now=new Date()){
   const day=localDay(now);
   let old={};
-  try{old=JSON.parse(localStorage.getItem(KEY)||'{}')||{};}catch{old={};}
+  try{old=JSON.parse(localStorage.getItem(key())||'{}')||{};}catch{old={};}
   if(typeof old!=='object'||Array.isArray(old))old={};
   const source=old;
   const lastDay=typeof source.lastDay==='string'?source.lastDay:'';
@@ -34,7 +35,7 @@ export function readDaily(now=new Date()){
   return {day,counts,claimed,lastDay:day,streak};
 }
 function positive(n){return Number.isFinite(n)?Math.max(0,Math.min(999,Math.floor(n))):0;}
-function save(state){localStorage.setItem(KEY,JSON.stringify(state));window.dispatchEvent(new Event('af-quests-changed'));return state;}
+function save(state){localStorage.setItem(key(),JSON.stringify(state));window.dispatchEvent(new Event('af-quests-changed'));return state;}
 export function visitDaily(now=new Date()){
   const next=readDaily(now);
   save(next);
